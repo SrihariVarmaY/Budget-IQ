@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "158649490488",
+    "project_id": "vitap-budget-app",
+    "storage_bucket": "vitap-budget-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:158649490488:android:3aefd2bd3293593fd3dacd",
+        "android_client_info": {
+          "package_name": "com.zenith.budgetapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBKT0XJKH_Mt7prJAPbeqbl_Q4kEARZnmE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:158649490488:android:c0d92db80cedc788d3dacd",
+        "android_client_info": {
+          "package_name": "com.zenith.budgetingapp.vitap_budget_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBKT0XJKH_Mt7prJAPbeqbl_Q4kEARZnmE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
