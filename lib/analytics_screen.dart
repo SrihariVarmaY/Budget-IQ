@@ -1,19 +1,36 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'app_state.dart';
 
 class AnalyticsScreen extends StatelessWidget {
   const AnalyticsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final user = FirebaseAuth.instance.currentUser;
+    final state = context.watch<AppState>();
 
-    if (user == null) {
-      return const Scaffold(body: Center(child: Text('User not logged in')));
+    if (state.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    final now = DateTime.now();
+    final currentMonthExpenses = state.expenses.where((e) => e.month == now.month && e.year == now.year).toList();
+    final totalSpent = currentMonthExpenses.fold(0.0, (sum, e) => sum + e.amount);
+    final categoryTotals = state.categoryTotals;
+
+    if (currentMonthExpenses.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Spending Analytics')),
+        body: const Center(child: Text('No expenses recorded this month')),
+      );
+    }
+
+    double maxExpense = 0.0;
+    for (var e in currentMonthExpenses) {
+      if (e.amount > maxExpense) maxExpense = e.amount;
+    }
+    final avgExpense = totalSpent / currentMonthExpenses.length;
 
     return Scaffold(
       appBar: AppBar(
@@ -23,110 +40,56 @@ class AnalyticsScreen extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        // ✅ FIX: Use user-specific Firestore path
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('expenses')
-            .orderBy('date', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No data available'));
-          }
-
-          // 1. Process Data for Current Month
-          final docs = snapshot.data!.docs;
-          final List<Map<String, dynamic>> currentMonthExpenses = [];
-          double totalSpent = 0.0;
-          double maxExpense = 0.0;
-          Map<String, double> categoryTotals = {};
-
-          for (var doc in docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final timestamp = data['date'] as Timestamp?;
-            if (timestamp != null) {
-              final date = timestamp.toDate();
-              // ✅ Filter only current month and year
-              if (date.month == now.month && date.year == now.year) {
-                final amount = double.tryParse(data['amount']?.toString() ?? '0') ?? 0.0;
-                final category = data['category']?.toString() ?? 'Other';
-
-                currentMonthExpenses.add(data);
-                totalSpent += amount;
-                if (amount > maxExpense) maxExpense = amount;
-                
-                categoryTotals[category] = (categoryTotals[category] ?? 0) + amount;
-              }
-            }
-          }
-
-          if (currentMonthExpenses.isEmpty) {
-            return const Center(child: Text('No expenses recorded this month'));
-          }
-
-          final avgExpense = totalSpent / currentMonthExpenses.length;
-
-          return SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                // 2. Summary Cards
-                Row(
-                  children: [
-                    _buildSummaryCard('Total Spent', '₹${totalSpent.toStringAsFixed(0)}', Colors.deepPurpleAccent),
-                    const SizedBox(width: 12),
-                    _buildSummaryCard('Transactions', '${currentMonthExpenses.length}', Colors.blueAccent),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _buildSummaryCard('Average', '₹${avgExpense.toStringAsFixed(0)}', Colors.orangeAccent),
-                    const SizedBox(width: 12),
-                    _buildSummaryCard('Highest', '₹${maxExpense.toStringAsFixed(0)}', Colors.redAccent),
-                  ],
-                ),
-                
-                const SizedBox(height: 40),
-                const Text('Category Distribution', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 24),
-
-                // 3. Pie Chart
-                SizedBox(
-                  height: 200,
-                  child: PieChart(
-                    PieChartData(
-                      sectionsSpace: 4,
-                      centerSpaceRadius: 40,
-                      sections: _buildPieChartSections(categoryTotals, totalSpent),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 40),
-                // 4. Legend
-                const Text('Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white70)),
-                const SizedBox(height: 16),
-                ...categoryTotals.entries.map((entry) => _buildLegendItem(
-                  entry.key, 
-                  entry.value, 
-                  (entry.value / totalSpent * 100).toStringAsFixed(1),
-                  _getCategoryColor(entry.key),
-                )),
-                
-                const SizedBox(height: 100), // Extra space for FAB if needed
+                _buildSummaryCard('Total Spent', '₹${totalSpent.toStringAsFixed(0)}', Colors.deepPurpleAccent),
+                const SizedBox(width: 12),
+                _buildSummaryCard('Transactions', '${currentMonthExpenses.length}', Colors.blueAccent),
               ],
             ),
-          );
-        },
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _buildSummaryCard('Average', '₹${avgExpense.toStringAsFixed(0)}', Colors.orangeAccent),
+                const SizedBox(width: 12),
+                _buildSummaryCard('Highest', '₹${maxExpense.toStringAsFixed(0)}', Colors.redAccent),
+              ],
+            ),
+            
+            const SizedBox(height: 40),
+            const Text('Category Distribution', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+
+            SizedBox(
+              height: 200,
+              child: PieChart(
+                PieChartData(
+                  sectionsSpace: 4,
+                  centerSpaceRadius: 40,
+                  sections: _buildPieChartSections(categoryTotals, totalSpent),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 40),
+            const Text('Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white70)),
+            const SizedBox(height: 16),
+            ...categoryTotals.entries.map((entry) => _buildLegendItem(
+              entry.key, 
+              entry.value, 
+              (entry.value / totalSpent * 100).toStringAsFixed(1),
+              _getCategoryColor(entry.key),
+            )),
+            
+            const SizedBox(height: 100),
+          ],
+        ),
       ),
     );
   }
@@ -139,7 +102,7 @@ class AnalyticsScreen extends StatelessWidget {
           color: const Color(0xFF1A1A1A),
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
-            BoxShadow(color: color.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+            BoxShadow(color: color.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
           ],
         ),
         child: Column(
@@ -155,6 +118,7 @@ class AnalyticsScreen extends StatelessWidget {
   }
 
   List<PieChartSectionData> _buildPieChartSections(Map<String, double> totals, double totalSpent) {
+    if (totalSpent <= 0) return [];
     return totals.entries.map((entry) {
       final percentage = (entry.value / totalSpent) * 100;
       return PieChartSectionData(
@@ -204,7 +168,6 @@ class AnalyticsScreen extends StatelessWidget {
       Colors.cyanAccent,
       Colors.yellowAccent,
     ];
-    // Use hash code to keep color consistent for the same category name
     return colors[category.toLowerCase().hashCode % colors.length];
   }
 }

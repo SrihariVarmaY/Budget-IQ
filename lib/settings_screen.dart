@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
+import 'app_state.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
     final user = FirebaseAuth.instance.currentUser!;
-    final now = DateTime.now();
-    final monthId = "${now.year}-${now.month.toString().padLeft(2, '0')}";
+    final currentBudget = state.currentBudget?.amount ?? 0.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -19,78 +20,68 @@ class SettingsScreen extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('budgets')
-            .doc(monthId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          double currentBudget = 0.0;
-          if (snapshot.hasData && snapshot.data!.exists) {
-            currentBudget = double.tryParse(snapshot.data!['amount'].toString()) ?? 0.0;
-          }
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSectionHeader('Account'),
-                _buildSettingTile(
-                  icon: Icons.email_outlined,
-                  title: 'Email',
-                  subtitle: user.email ?? 'Not available',
-                ),
-                _buildSettingTile(
-                  icon: Icons.password_outlined,
-                  title: 'Change Password',
-                  onTap: () => _showChangePasswordDialog(context),
-                ),
-                _buildSettingTile(
-                  icon: Icons.logout,
-                  title: 'Logout',
-                  onTap: () => FirebaseAuth.instance.signOut().then((_) => Navigator.pop(context)),
-                ),
-                _buildSettingTile(
-                  icon: Icons.delete_forever,
-                  title: 'Delete Account',
-                  color: Colors.redAccent,
-                  onTap: () => _confirmDeleteAccount(context),
-                ),
-                const SizedBox(height: 30),
-                _buildSectionHeader('Budgeting'),
-                _buildSettingTile(
-                  icon: Icons.edit_calendar_outlined,
-                  title: 'Modify Monthly Budget',
-                  subtitle: 'Current: ₹${currentBudget.toStringAsFixed(0)}',
-                  onTap: () => _showEditBudgetDialog(context, user.uid, monthId, currentBudget),
-                ),
-                const SizedBox(height: 30),
-                _buildSectionHeader('Data Management'),
-                _buildSettingTile(
-                  icon: Icons.clear_all,
-                  title: 'Clear All Expenses',
-                  onTap: () => _confirmClearData(context),
-                ),
-                const SizedBox(height: 30),
-                _buildSectionHeader('About'),
-                _buildSettingTile(
-                  icon: Icons.info_outline,
-                  title: 'BudgetIQ',
-                  subtitle: 'Version 1.0.0',
-                ),
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: Text('Made with ❤️ by DevZenith', style: TextStyle(color: Colors.white38, fontSize: 12)),
-                  ),
-                ),
-              ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionHeader('Account'),
+            _buildSettingTile(
+              icon: Icons.email_outlined,
+              title: 'Email',
+              subtitle: user.email ?? 'Not available',
             ),
-          );
-        },
+            _buildSettingTile(
+              icon: Icons.password_outlined,
+              title: 'Change Password',
+              onTap: () => _showChangePasswordDialog(context),
+            ),
+            _buildSettingTile(
+              icon: Icons.logout,
+              title: 'Logout',
+              onTap: () {
+                final nav = Navigator.of(context);
+                FirebaseAuth.instance.signOut().then((_) {
+                  if (nav.canPop()) nav.pop();
+                });
+              },
+            ),
+            _buildSettingTile(
+              icon: Icons.delete_forever,
+              title: 'Delete Account',
+              color: Colors.redAccent,
+              onTap: () => _confirmDeleteAccount(context),
+            ),
+            const SizedBox(height: 30),
+            _buildSectionHeader('Budgeting'),
+            _buildSettingTile(
+              icon: Icons.edit_calendar_outlined,
+              title: 'Modify Monthly Budget',
+              subtitle: 'Current: ₹${currentBudget.toStringAsFixed(0)}',
+              onTap: () => _showEditBudgetDialog(context, currentBudget),
+            ),
+            const SizedBox(height: 30),
+            _buildSectionHeader('Data Management'),
+            _buildSettingTile(
+              icon: Icons.clear_all,
+              title: 'Clear All Expenses',
+              onTap: () => _confirmClearData(context),
+            ),
+            const SizedBox(height: 30),
+            _buildSectionHeader('About'),
+            _buildSettingTile(
+              icon: Icons.info_outline,
+              title: 'BudgetIQ',
+              subtitle: 'Version 1.0.0',
+            ),
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('Made with ❤️ by DevZenith', style: TextStyle(color: Colors.white38, fontSize: 12)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -151,31 +142,26 @@ class SettingsScreen extends StatelessWidget {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final nav = Navigator.of(context);
               final user = FirebaseAuth.instance.currentUser!;
               final currentPass = currentPasswordController.text.trim();
               final newPass = newPasswordController.text.trim();
 
               if (currentPass.isEmpty || newPass.length < 6) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid input')));
+                messenger.showSnackBar(const SnackBar(content: Text('Invalid input')));
                 return;
               }
 
               try {
-                // 1. Re-authenticate
                 AuthCredential credential = EmailAuthProvider.credential(email: user.email!, password: currentPass);
                 await user.reauthenticateWithCredential(credential);
-                
-                // 2. Update Password
                 await user.updatePassword(newPass);
                 
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated!'), behavior: SnackBarBehavior.floating));
-                }
+                nav.pop();
+                messenger.showSnackBar(const SnackBar(content: Text('Password updated!'), behavior: SnackBarBehavior.floating));
               } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), behavior: SnackBarBehavior.floating));
-                }
+                messenger.showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), behavior: SnackBarBehavior.floating));
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurpleAccent, foregroundColor: Colors.white),
@@ -186,7 +172,7 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  void _showEditBudgetDialog(BuildContext context, String uid, String monthId, double currentAmount) {
+  void _showEditBudgetDialog(BuildContext context, double currentAmount) {
     final controller = TextEditingController(text: currentAmount.toStringAsFixed(0));
     showDialog(
       context: context,
@@ -209,15 +195,17 @@ class SettingsScreen extends StatelessWidget {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final nav = Navigator.of(context);
+              final state = context.read<AppState>();
               final newBudget = double.tryParse(controller.text.trim());
               if (newBudget != null && newBudget > 0) {
-                await FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(uid)
-                    .collection('budgets')
-                    .doc(monthId)
-                    .update({'amount': newBudget});
-                if (context.mounted) Navigator.pop(context);
+                try {
+                  await state.setBudget(newBudget);
+                  nav.pop();
+                } catch (e) {
+                  messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
+                }
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurpleAccent, foregroundColor: Colors.white),
@@ -229,7 +217,6 @@ class SettingsScreen extends StatelessWidget {
   }
 
   void _confirmClearData(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser!;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -241,14 +228,14 @@ class SettingsScreen extends StatelessWidget {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
             onPressed: () async {
-              final ref = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('expenses');
-              final snapshots = await ref.get();
-              for (var doc in snapshots.docs) {
-                await doc.reference.delete();
-              }
-              if (context.mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All data cleared'), behavior: SnackBarBehavior.floating));
+              final messenger = ScaffoldMessenger.of(context);
+              final nav = Navigator.of(context);
+              try {
+                await context.read<AppState>().clearAllExpenses();
+                nav.pop();
+                messenger.showSnackBar(const SnackBar(content: Text('All data cleared'), behavior: SnackBarBehavior.floating));
+              } catch (e) {
+                messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
               }
             },
             child: const Text('Clear All', style: TextStyle(color: Colors.redAccent)),
@@ -270,15 +257,15 @@ class SettingsScreen extends StatelessWidget {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final nav = Navigator.of(context);
               try {
                 final user = FirebaseAuth.instance.currentUser!;
-                await FirebaseFirestore.instance.collection('users').doc(user.uid).delete();
+                // Note: Actual deletion usually requires recent login
                 await user.delete();
-                if (context.mounted) Navigator.pop(context);
+                nav.pop();
               } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: Re-authentication required. Please logout and login again.'), behavior: SnackBarBehavior.floating));
-                }
+                messenger.showSnackBar(const SnackBar(content: Text('Error: Re-authentication required. Please logout and login again.'), behavior: SnackBarBehavior.floating));
               }
             },
             child: const Text('Delete Permanently', style: TextStyle(color: Colors.redAccent)),

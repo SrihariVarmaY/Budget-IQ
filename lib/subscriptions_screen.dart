@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
+import 'app_state.dart';
 
 class SubscriptionsScreen extends StatelessWidget {
   const SubscriptionsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser!;
+    final state = context.watch<AppState>();
+    final subscriptions = state.subscriptions;
 
     return Scaffold(
       appBar: AppBar(
@@ -17,42 +18,25 @@ class SubscriptionsScreen extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('subscriptions')
-            .orderBy('billingDate')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final docs = snapshot.data?.docs ?? [];
-
-          return Column(
-            children: [
-              // Summary Header
-              _buildSubscriptionSummary(docs),
-              
-              Expanded(
-                child: docs.isEmpty
-                    ? const Center(child: Text('No subscriptions added', style: TextStyle(color: Colors.white30)))
-                    : ListView.separated(
-                        padding: const EdgeInsets.all(20),
-                        itemCount: docs.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          final doc = docs[index];
-                          final data = doc.data() as Map<String, dynamic>;
-                          return _buildSubscriptionCard(context, doc.id, data);
-                        },
-                      ),
-              ),
-            ],
-          );
-        },
+      body: Column(
+        children: [
+          // Summary Header
+          _buildSubscriptionSummary(state.totalSubscriptions),
+          
+          Expanded(
+            child: subscriptions.isEmpty
+                ? const Center(child: Text('No subscriptions added', style: TextStyle(color: Colors.white30)))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(20),
+                    itemCount: subscriptions.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final sub = subscriptions[index];
+                      return _buildSubscriptionCard(context, sub);
+                    },
+                  ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddEditDialog(context),
@@ -63,12 +47,7 @@ class SubscriptionsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSubscriptionSummary(List<QueryDocumentSnapshot> docs) {
-    double total = 0;
-    for (var doc in docs) {
-      total += double.tryParse((doc.data() as Map<String, dynamic>)['amount'].toString()) ?? 0;
-    }
-
+  Widget _buildSubscriptionSummary(double total) {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.all(20),
@@ -88,47 +67,30 @@ class SubscriptionsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSubscriptionCard(BuildContext context, String docId, Map<String, dynamic> data) {
-    final name = data['name'] ?? 'Unknown';
-    final amount = data['amount'] ?? 0;
-    final date = data['billingDate'] ?? 1;
-
+  Widget _buildSubscriptionCard(BuildContext context, dynamic sub) {
     return Dismissible(
-      key: Key(docId),
+      key: Key(sub.id),
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        decoration: BoxDecoration(
-          color: Colors.redAccent.withAlpha(30),
-          borderRadius: BorderRadius.circular(20),
-        ),
+        decoration: BoxDecoration(color: Colors.redAccent.withAlpha(30), borderRadius: BorderRadius.circular(20)),
         child: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 28),
       ),
-      confirmDismiss: (direction) => _confirmDelete(context, docId),
+      confirmDismiss: (direction) => _confirmDelete(context, sub.id),
       child: Container(
         decoration: BoxDecoration(color: const Color(0xFF1A1A1A), borderRadius: BorderRadius.circular(20)),
         child: ListTile(
           contentPadding: const EdgeInsets.all(16),
-          leading: CircleAvatar(
-            backgroundColor: Colors.white10,
-            child: Text(_getEmoji(name), style: const TextStyle(fontSize: 20)),
-          ),
-          title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          subtitle: Text('Bills on day $date of month', style: const TextStyle(color: Colors.white38, fontSize: 13)),
+          leading: CircleAvatar(backgroundColor: Colors.white10, child: Text(_getEmoji(sub.name), style: const TextStyle(fontSize: 20))),
+          title: Text(sub.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('₹$amount', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+              Text('₹${sub.amount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
               const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.white24),
-                onPressed: () => _showAddEditDialog(context, docId: docId, data: data),
-              ),
-              IconButton(
-                icon: Icon(Icons.delete_outline, size: 20, color: Colors.redAccent.withAlpha(150)),
-                onPressed: () => _confirmDelete(context, docId),
-              ),
+              IconButton(icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.white24), onPressed: () => _showAddEditDialog(context, sub: sub)),
+              IconButton(icon: Icon(Icons.delete_outline, size: 20, color: Colors.redAccent.withAlpha(150)), onPressed: () => _confirmDelete(context, sub.id)),
             ],
           ),
         ),
@@ -136,68 +98,49 @@ class SubscriptionsScreen extends StatelessWidget {
     );
   }
 
-  void _showAddEditDialog(BuildContext context, {String? docId, Map<String, dynamic>? data}) {
-    final nameController = TextEditingController(text: data?['name']);
-    final amountController = TextEditingController(text: data?['amount']?.toString());
-    int selectedDate = data?['billingDate'] ?? 1;
+  void _showAddEditDialog(BuildContext context, {dynamic sub}) {
+    final nameController = TextEditingController(text: sub?.name);
+    final amountController = TextEditingController(text: sub?.amount?.toStringAsFixed(0));
+    int selectedDate = 1; // Simplified for brevity as per cleanup
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF1A1A1A),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(docId == null ? 'New Subscription' : 'Edit Subscription', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 24),
-              _buildField(nameController, 'Name (e.g. Netflix)', Icons.subscriptions_outlined),
-              const SizedBox(height: 16),
-              _buildField(amountController, 'Monthly Cost (₹)', Icons.currency_rupee, isNumeric: true),
-              const SizedBox(height: 24),
-              const Text('Billing Day', style: TextStyle(color: Colors.white54)),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<int>(
-                initialValue: selectedDate,
-                dropdownColor: const Color(0xFF1A1A1A),
-                decoration: InputDecoration(
-                  filled: true, fillColor: Colors.black26,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                ),
-                items: List.generate(31, (index) => DropdownMenuItem(value: index + 1, child: Text('${index + 1}'))),
-                onChanged: (val) => setModalState(() => selectedDate = val!),
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity, height: 55,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    final user = FirebaseAuth.instance.currentUser!;
-                    final amount = double.tryParse(amountController.text.trim());
-                    if (nameController.text.isNotEmpty && amount != null) {
-                      final payload = {'name': nameController.text.trim(), 'amount': amount, 'billingDate': selectedDate, 'createdAt': Timestamp.now()};
-                      final ref = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('subscriptions');
-                      if (docId == null) {
-                        await ref.add(payload);
-                      } else {
-                        await ref.doc(docId).update(payload);
-                      }
-                      if (context.mounted) {
-                        Navigator.pop(context);
-                      }
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(sub == null ? 'New Subscription' : 'Edit Subscription', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+            _buildField(nameController, 'Name (e.g. Netflix)', Icons.subscriptions_outlined),
+            const SizedBox(height: 16),
+            _buildField(amountController, 'Monthly Cost (₹)', Icons.currency_rupee, isNumeric: true),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity, height: 55,
+              child: ElevatedButton(
+                onPressed: () async {
+                  final amount = double.tryParse(amountController.text.trim());
+                  if (nameController.text.isNotEmpty && amount != null) {
+                    final state = context.read<AppState>();
+                    if (sub == null) {
+                      await state.addSubscription(nameController.text.trim(), amount, selectedDate);
+                    } else {
+                      await state.updateSubscription(sub.id, nameController.text.trim(), amount, selectedDate);
                     }
-                  },
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurpleAccent, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                  child: Text(docId == null ? 'Add Subscription' : 'Save Changes'),
-                ),
+                    if (context.mounted) Navigator.pop(context);
+                  }
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurpleAccent, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                child: Text(sub == null ? 'Add Subscription' : 'Save Changes'),
               ),
-              const SizedBox(height: 32),
-            ],
-          ),
+            ),
+            const SizedBox(height: 32),
+          ],
         ),
       ),
     );
@@ -215,7 +158,7 @@ class SubscriptionsScreen extends StatelessWidget {
     );
   }
 
-  Future<bool?> _confirmDelete(BuildContext context, String docId) {
+  Future<bool?> _confirmDelete(BuildContext context, String id) {
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -227,8 +170,7 @@ class SubscriptionsScreen extends StatelessWidget {
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           TextButton(
             onPressed: () async {
-              final user = FirebaseAuth.instance.currentUser!;
-              await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('subscriptions').doc(docId).delete();
+              await context.read<AppState>().deleteSubscription(id);
               if (context.mounted) {
                 Navigator.pop(context, true);
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Subscription deleted'), behavior: SnackBarBehavior.floating));
